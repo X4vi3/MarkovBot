@@ -62,9 +62,12 @@ jobs:
 
       - name: Upload to GitHub Release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ matrix.asset_name }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "${{ matrix.asset_name }}" --clobber --repo "${{ github.repository }}"
 
       - name: Upload as workflow artifact (manual runs)
         if: github.event_name != 'release'
