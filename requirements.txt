@@ -1,4 +1,5 @@
-python-telegram-bot>=21.0
+python-telegram-bot[socks]>=21.0
 markovify>=0.9.4
 Pillow>=10.0.0
 pymorphy3>=2.0.0
+rich>=13.0.0
