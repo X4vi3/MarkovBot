@@ -273,20 +273,36 @@ def run_token_wizard(cfg: configparser.ConfigParser) -> bool:
     """Интерактивный мастер заполнения токена / username / OWNER_ID.
 
     Прокси здесь НЕ спрашивается — он уже разрешён авто-детектом раньше.
-    Возвращает True, если поля заполнены; False — если юзер отказался
-    или оставил токен пустым.
+    Возвращает True, если токен валиден и поля сохранены. False — если
+    юзер отказался от мастера или ввёл пустой токен (в обоих случаях
+    мастер сам печатает понятное объяснение).
     """
     if not Confirm.ask(
             "\n[yellow]Заполнить параметры бота сейчас?[/yellow]",
             default=True):
         console.print(
-            "[yellow]Откройте config.ini, заполните [telegram] token = ... "
-            "и перезапустите.[/yellow]")
+            "\n[yellow]ОК, мастер пропущен.[/yellow]\n"
+            "Бот не запустится, пока не задан токен. Откройте файл "
+            "[bold]config.ini[/bold] рядом с программой, впишите токен в "
+            "строку [cyan]token =[/cyan] в секции [cyan][telegram][/cyan] "
+            "и запустите MarkovBot заново.")
         return False
 
     token = Prompt.ask(
         "Токен бота от @BotFather",
         default=cfg["telegram"].get("token", "")).strip()
+
+    if not token:
+        console.print(
+            "\n[red]Токен не введён — без него бот не сможет подключиться "
+            "к Telegram.[/red]\n"
+            "Получите токен у [bold]@BotFather[/bold] (команда "
+            "[cyan]/newbot[/cyan]) и запустите MarkovBot заново.\n"
+            "Либо отредактируйте [bold]config.ini[/bold] вручную: "
+            "впишите значение от BotFather в строку "
+            "[cyan]token =[/cyan].")
+        return False
+
     username = Prompt.ask(
         "Username бота (без @)",
         default=cfg["telegram"].get("username", "MarkovBot")).strip()
@@ -299,7 +315,7 @@ def run_token_wizard(cfg: configparser.ConfigParser) -> bool:
     cfg["telegram"]["owner_id"] = owner_id
     save_config(cfg)
     console.print("[green]Сохранено в config.ini.[/green]\n")
-    return bool(token)
+    return True
 
 
 def apply_config_to_env(cfg: configparser.ConfigParser) -> bool:
