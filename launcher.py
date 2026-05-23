@@ -14,6 +14,7 @@ import os
 import sys
 import sqlite3
 import warnings
+from typing import Optional
 
 # Подавляем ложное PTBUserWarning «Application instances should be built via
 # the ApplicationBuilder» — оно срабатывает изнутри самого ApplicationBuilder
@@ -175,10 +176,8 @@ def _render_config(token: str, username: str, owner_id: str,
     )
 
 
-def ensure_config() -> configparser.ConfigParser:
-    """Создаёт config.ini при первом запуске, проводит визарда."""
-    cfg = configparser.ConfigParser()
-
+def ensure_config_file_exists() -> None:
+    """Создаёт config.ini с шаблоном, если его нет. Без интерактива."""
     if not os.path.exists(CONFIG_PATH):
         console.print(
             "[cyan]Первый запуск: создаю[/cyan] "
@@ -186,33 +185,137 @@ def ensure_config() -> configparser.ConfigParser:
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             f.write(DEFAULT_CONFIG)
 
-        if Confirm.ask("\n[yellow]Заполнить параметры сейчас?[/yellow]",
-                       default=True):
-            cfg.read(CONFIG_PATH, encoding="utf-8")
-            token = Prompt.ask("Токен бота от @BotFather",
-                               default=cfg["telegram"].get("token", ""))
-            username = Prompt.ask("Username бота (без @)",
-                                  default=cfg["telegram"].get("username", "MarkovBot"))
-            owner_id = Prompt.ask("Ваш Telegram user_id",
-                                  default=cfg["telegram"].get("owner_id", "0"))
-            proxy = Prompt.ask(
-                "Адрес локального прокси (Enter — без прокси)",
-                default=cfg["proxy"].get("url", "socks5://127.0.0.1:10808"))
-            verbose = cfg["logging"].get("verbose", "false") \
-                if cfg.has_section("logging") else "false"
-            content = _render_config(
-                token=token.strip(),
-                username=username.strip(),
-                owner_id=owner_id.strip(),
-                proxy=proxy.strip(),
-                verbose=verbose,
-            )
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                f.write(content)
-            console.print("[green]Сохранено в config.ini.[/green]\n")
 
+def read_config() -> configparser.ConfigParser:
+    """Читает config.ini. Если каких-то секций нет — добавляет пустые
+    (чтобы дальнейший cfg["..."]... не падал KeyError на повреждённом файле).
+    """
+    cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
+    for section in ("telegram", "proxy", "logging"):
+        if not cfg.has_section(section):
+            cfg.add_section(section)
     return cfg
+
+
+def save_config(cfg: configparser.ConfigParser) -> None:
+    """Записывает cfg в config.ini через _render_config (сохраняет комментарии)."""
+    content = _render_config(
+        token=cfg["telegram"].get("token", "").strip(),
+        username=cfg["telegram"].get("username", "MarkovBot").strip(),
+        owner_id=cfg["telegram"].get("owner_id", "0").strip() or "0",
+        proxy=cfg["proxy"].get("url", "").strip(),
+        verbose=cfg["logging"].get("verbose", "false").strip(),
+    )
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def run_auto_detect(cfg: configparser.ConfigParser) -> bool:
+    """Авто-детект рабочего прокси.
+
+    Запускается, только когда [proxy] url пуст. По итогу записывает в cfg:
+      • "direct"          — нашли прямое подключение;
+      • "socks5://..."    — нашли локальный прокси (или юзер ввёл вручную);
+      • не сохраняет ничего — если юзер отказался ввести прокси при провале.
+
+    Возвращает True, если можно продолжать запуск (есть какой-то рабочий
+    канал или ручной ввод). False — если ничего, и юзер не ввёл вручную;
+    в этом случае лаунчер должен завершиться.
+    """
+    from proxy_detect import detect_proxy
+
+    found_ok = False
+    found_proxy: Optional[str] = None
+
+    def _progress(candidate, idx, total):
+        label = "без прокси" if candidate is None else candidate
+        status.update(f"[cyan]Проверка ({idx}/{total}):[/cyan] {label}")
+
+    with console.status(
+            "[cyan]Проверка подключения к Telegram...[/cyan]") as status:
+        found_ok, found_proxy = detect_proxy(on_progress=_progress)
+
+    if found_ok:
+        if found_proxy is None:
+            console.print("[green]✓[/green] Прямое подключение работает.")
+            cfg["proxy"]["url"] = "direct"
+        else:
+            console.print(
+                f"[green]✓[/green] Найден прокси: [bold]{found_proxy}[/bold]")
+            cfg["proxy"]["url"] = found_proxy
+        save_config(cfg)
+        return True
+
+    # Авто-детект не справился — даём шанс ввести вручную.
+    console.print()
+    console.print(
+        "[red]✗[/red] Не удалось достучаться до api.telegram.org "
+        "ни напрямую, ни через типичные локальные прокси.")
+    console.print()
+    console.print("Возможные причины:")
+    console.print("  • VPN/прокси не запущен")
+    console.print("  • Прокси на нестандартном порту")
+    console.print("  • Прокси требует логин/пароль")
+    console.print("  • Провайдер блокирует исходящие соединения")
+    console.print()
+    custom = Prompt.ask(
+        "Введите адрес прокси вручную (Enter — выйти)",
+        default="").strip()
+    if not custom:
+        return False
+    cfg["proxy"]["url"] = custom
+    save_config(cfg)
+    return True
+
+
+def run_token_wizard(cfg: configparser.ConfigParser) -> bool:
+    """Интерактивный мастер заполнения токена / username / OWNER_ID.
+
+    Прокси здесь НЕ спрашивается — он уже разрешён авто-детектом раньше.
+    Возвращает True, если токен валиден и поля сохранены. False — если
+    юзер отказался от мастера или ввёл пустой токен (в обоих случаях
+    мастер сам печатает понятное объяснение).
+    """
+    if not Confirm.ask(
+            "\n[yellow]Заполнить параметры бота сейчас?[/yellow]",
+            default=True):
+        console.print(
+            "\n[yellow]ОК, мастер пропущен.[/yellow]\n"
+            "Бот не запустится, пока не задан токен. Откройте файл "
+            "[bold]config.ini[/bold] рядом с программой, впишите токен в "
+            "строку [cyan]token =[/cyan] в секции [cyan][telegram][/cyan] "
+            "и запустите MarkovBot заново.")
+        return False
+
+    token = Prompt.ask(
+        "Токен бота от @BotFather",
+        default=cfg["telegram"].get("token", "")).strip()
+
+    if not token:
+        console.print(
+            "\n[red]Токен не введён — без него бот не сможет подключиться "
+            "к Telegram.[/red]\n"
+            "Получите токен у [bold]@BotFather[/bold] (команда "
+            "[cyan]/newbot[/cyan]) и запустите MarkovBot заново.\n"
+            "Либо отредактируйте [bold]config.ini[/bold] вручную: "
+            "впишите значение от BotFather в строку "
+            "[cyan]token =[/cyan].")
+        return False
+
+    username = Prompt.ask(
+        "Username бота (без @)",
+        default=cfg["telegram"].get("username", "MarkovBot")).strip()
+    owner_id = Prompt.ask(
+        "Ваш Telegram user_id (0 — без выделенного владельца)",
+        default=cfg["telegram"].get("owner_id", "0")).strip()
+
+    cfg["telegram"]["token"] = token
+    cfg["telegram"]["username"] = username
+    cfg["telegram"]["owner_id"] = owner_id
+    save_config(cfg)
+    console.print("[green]Сохранено в config.ini.[/green]\n")
+    return True
 
 
 def apply_config_to_env(cfg: configparser.ConfigParser) -> bool:
@@ -307,7 +410,33 @@ def _main():
     print_banner()
     print_proxy_warning()
 
-    cfg = ensure_config()
+    # 1. Гарантируем существование config.ini (создаём шаблон, если нет).
+    ensure_config_file_exists()
+    cfg = read_config()
+
+    # 2. Если url не задан — запускаем авто-детект ДО любых интерактивов
+    #    с пользователем. Бессмысленно спрашивать токен, если нет сети.
+    if not cfg["proxy"].get("url", "").strip():
+        if not run_auto_detect(cfg):
+            console.print(
+                "\n[red]Не удалось установить соединение с Telegram.[/red]"
+                "\nНастройте VPN/прокси и перезапустите MarkovBot.")
+            input("\nНажмите Enter, чтобы закрыть окно...")
+            sys.exit(1)
+        # Состояние cfg обновилось внутри run_auto_detect; на всякий
+        # случай перечитываем с диска, чтобы все секции были актуальны.
+        cfg = read_config()
+
+    # 3. Если токен не задан — запускаем wizard. Прокси здесь уже не
+    #    спрашиваем: он либо найден детектом, либо введён вручную при
+    #    провале детекта.
+    if not cfg["telegram"].get("token", "").strip():
+        if not run_token_wizard(cfg):
+            input("\nНажмите Enter, чтобы закрыть окно...")
+            sys.exit(1)
+        cfg = read_config()
+
+    # 4. Проброс env vars + запуск бота.
     if not apply_config_to_env(cfg):
         console.print("\n[red]Откройте config.ini, заполните параметры, "
                       "запустите заново.[/red]\n")
@@ -325,7 +454,7 @@ def _main():
     if verbose:
         console.print("[dim]Verbose-логи включены (logging.verbose=true).[/dim]")
 
-    # Импортируем bot ПОСЛЕ настройки окружения, чтобы config.py подхватил токен
+    # Импортируем bot ПОСЛЕ настройки окружения, чтобы config.py подхватил токен.
     console.print("\n[cyan]Запускаю бота...[/cyan]\n")
     try:
         from bot import main as bot_main
