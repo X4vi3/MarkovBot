@@ -1,0 +1,57 @@
+# ──────── Локальные материалы сдачи (не для публикации) ────────
+Презентация + видео + exe + отчёт/
+
+# ──────── Секреты и личные данные ────────
+config.ini
+config.ini.backup
+*.env
+.env
+
+# База данных бота — содержит личные переписки пользователей
+bot.db
+bot.db-journal
+bot.db-shm
+bot.db-wal
+bot.db.backup_*
+
+# Бэкапы корпуса
+phrases_telegram.csv.backup_*
+
+# Логи
+*.log
+
+# ──────── Python ────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Виртуальные окружения
+venv/
+.venv/
+env/
+.env/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# Тесты / линтеры
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ──────── IDE / редакторы ────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ──────── ОС ────────
+.DS_Store
+Thumbs.db
+desktop.ini

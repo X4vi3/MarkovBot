@@ -1,0 +1,86 @@
+"""Шаблон конфигурации MarkovBot.
+
+Структурная копия config.py с пустыми чувствительными значениями —
+посмотреть, какие параметры вообще есть (REPLY_CHANCE, SANITY и т.д.).
+
+Реальные значения токена / прокси / OWNER_ID лежат не здесь, а в
+config.ini рядом с этим файлом (или рядом с .exe). config.py сам его
+читает при запуске бота.
+
+Бот запускается двумя способами:
+
+  1.  python bot.py    — из исходников. Требует config.ini рядом с
+                          заполненным [telegram] token = ...
+  2.  MarkovBot.exe    — exe-сборка. При первом запуске мастер сам
+                          создаст config.ini, попросив токен у пользователя.
+
+Если запускать `python bot.py` без заполненного config.ini — бот
+вежливо скажет «не задан TELEGRAM_TOKEN» и завершится.
+
+"""
+import os
+import sys
+import configparser
+
+
+def _config_ini_path() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(sys.executable), "config.ini")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini")
+
+
+def _load_ini() -> dict:
+    path = _config_ini_path()
+    if not os.path.exists(path):
+        return {}
+    cp = configparser.ConfigParser()
+    try:
+        cp.read(path, encoding="utf-8")
+    except (configparser.Error, OSError):
+        return {}
+    out = {}
+    if cp.has_section("telegram"):
+        out["TELEGRAM_TOKEN"] = cp.get("telegram", "token", fallback="").strip()
+        out["BOT_USERNAME"] = cp.get("telegram", "username", fallback="").strip()
+        out["OWNER_ID"] = cp.get("telegram", "owner_id", fallback="0").strip()
+    if cp.has_section("proxy"):
+        out["PROXY_URL"] = cp.get("proxy", "url", fallback="").strip()
+    return out
+
+
+_INI = _load_ini()
+
+
+def _get(name: str, default: str = "") -> str:
+    val = os.environ.get(name)
+    if val:
+        return val
+    return _INI.get(name, default)
+
+
+# --- Подключение ---
+TELEGRAM_TOKEN = _get("TELEGRAM_TOKEN", "")
+BOT_USERNAME = _get("BOT_USERNAME", "")
+
+# 0 = «нет владельца, только создатели чатов имеют доступ к админке».
+OWNER_ID = int(_get("OWNER_ID", "0") or "0")
+
+# Прокси для подключения к Telegram API.
+# Пустая строка — без прокси (прямое подключение).
+# Пример SOCKS5: "socks5://127.0.0.1:10808" (v2rayN, Nekoray и т.п.)
+# Пример HTTP:   "http://127.0.0.1:10809"
+PROXY_URL = _get("PROXY_URL", "")
+
+# --- Параметры модели Маркова ---
+MIN_MESSAGES = 20      # минимум сообщений в корпусе для генерации
+MAX_ATTEMPTS = 8       # сколько раз пробовать сгенерировать неповторяющийся ответ
+MARKOV_STATE = 1       # размер состояния марковской цепи (1 или 2)
+
+# --- Шансы поведения бота (0.0..1.0) ---
+REPLY_CHANCE = 0.05         # шанс ответа на обычное сообщение
+MEDIA_REPLY_CHANCE = 0.25   # шанс ответа стикером/гифкой вместо текста
+DEMOTIVATOR_CHANCE = 0.05   # шанс сделать демотиватор из присланного фото
+MUTATION_CHANCE = 0.3       # шанс применить мутацию к сгенерированному тексту
+SANITY = 0.7                # «разумность»: 1.0 — копирует реальные сообщения,
+                            # 0.0 — чистый бред от марковских цепей
+CONTEXT_CHANCE = 0.5        # шанс ответа «в тему» (по контексту)
