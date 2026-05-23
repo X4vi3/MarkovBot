@@ -87,18 +87,42 @@ xattr -d com.apple.quarantine MarkovBot-macos
 git clone <репозиторий>
 cd markovBot
 python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Linux/macOS
+
+# Windows
+venv\Scripts\activate
+# Linux/macOS
+source venv/bin/activate
+
 pip install -r requirements.txt
 ```
 
-Если позднее планируется собрать собственный `.exe`:
+Дальше — создать `config.ini` рядом с `bot.py` (см. раздел [«Конфигурация»](#конфигурация)
+ниже), затем залить стартовый корпус и запустить бота:
 
 ```bash
-pip install pyinstaller rich
-pyinstaller MarkovBot.spec --noconfirm
-# Результат: dist/MarkovBot.exe
+python seed_corpus.py phrases_telegram.csv   # один раз, ~28 000 фраз
+python bot.py
 ```
+
+Если хочется собрать собственный бинарник (`.exe` на Windows, ELF на Linux,
+Mach-O на macOS):
+
+```bash
+pip install pyinstaller
+pyinstaller MarkovBot.spec --noconfirm
+```
+
+Результат:
+
+| Платформа | Путь |
+|---|---|
+| Windows | `dist/MarkovBot.exe` |
+| Linux   | `dist/MarkovBot` |
+| macOS   | `dist/MarkovBot` |
+
+Для распространения готовых бинариков на все три ОС в репозитории настроен
+GitHub Actions workflow (`.github/workflows/build.yml`) — он автоматически
+собирает их при публикации нового релиза и прикрепляет к нему как assets.
 
 ## Конфигурация
 
@@ -152,24 +176,20 @@ verbose  = false
 5. Если бот уже добавлен в группу — удалите и добавьте заново, иначе
    изменение Privacy не применится.
 
-## Первый запуск
+## Что увидите при старте
 
-```bash
-python seed_corpus.py phrases_telegram.csv     # импорт стартового корпуса
-python bot.py                                   # запуск бота
-```
-
-При старте увидите:
+Лог типа:
 
 ```
-INFO - Предсборка модели Маркова (28725 сообщений)...
-INFO - Прогрев кэшей: 28725 сообщений, 37889 лемм, 37535 слов за 0.6с
+INFO - Предсборка модели Маркова (28 725 сообщений)...
+INFO - Прогрев кэшей: ~37 000 лемм, ~37 000 слов за ~0.6 с
 INFO - Модель и кэши готовы.
 INFO - Используется прокси: socks5://127.0.0.1:10808
 INFO - Бот запущен
 ```
 
-Дальше можно открыть Telegram, найти своего бота и написать `/start`.
+Конкретные числа зависят от размера вашего корпуса. После «Бот запущен»
+можно открыть Telegram, найти бота и написать ему `/start`.
 
 ## Команды бота
 
@@ -207,20 +227,35 @@ INFO - Бот запущен
 ## Структура проекта
 
 ```
-sglypa_bot/
-├── bot.py                    # главный модуль, хэндлеры, панель
-├── config.py                 # параметры (токен, прокси, шансы)
-├── config.py.example         # пример конфигурации
-├── db.py                     # работа с SQLite, 3 таблицы, 12 запросов
-├── markov.py                 # модель Маркова, контекстный поиск
+markovBot/
+├── bot.py                    # главный модуль, хэндлеры, инлайн-панель
+├── launcher.py               # точка входа .exe-сборки: визард, баннер, сидинг
+├── config.py                 # читает config.ini и переменные окружения
+├── config.py.example         # шаблон config.py с пояснениями
+├── db.py                     # работа с SQLite: 3 таблицы, 12 SQL-запросов
+├── markov.py                 # модель Маркова + контекстный поиск (TF-IDF)
 ├── mutations.py              # искажение текста (КАПС, заикание, эмодзи)
-├── demotivator.py            # генерация демотиваторов
-├── seed_corpus.py            # импорт стартового корпуса из CSV
-├── prepare_telegram_corpus.py# подготовка корпуса из HuggingFace
-├── cleanup.py                # обслуживание БД
-├── import_history.py         # импорт истории из Telegram-экспорта
-├── bot.db                    # SQLite-база (создаётся автоматически)
-└── requirements.txt
+├── demotivator.py            # генерация демотиваторов через Pillow
+├── seed_corpus.py            # импорт стартового корпуса из CSV в bot.db
+├── phrases_telegram.csv      # стартовый корпус (~28 000 фраз)
+├── MarkovBot.spec            # конфиг PyInstaller для сборки бинарников
+├── requirements.txt          # runtime-зависимости
+├── README.md
+├── LICENSE                   # MIT
+├── .gitignore                # игнорируем bot.db, config.ini, venv, dist…
+├── .gitattributes            # унификация EOL (LF в репо)
+└── .github/
+    └── workflows/
+        └── build.yml         # CI: сборка .exe / ELF / Mach-O на релиз
+```
+
+Файлы, которые **создаются при работе бота** и не лежат в репозитории
+(они в `.gitignore`):
+
+```
+config.ini                    # параметры подключения (мастер первого запуска)
+bot.db                        # SQLite-база с корпусом и настройками
+bot.log                       # опционально, при verbose=true
 ```
 
 ## Технологии
