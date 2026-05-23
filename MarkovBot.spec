@@ -35,6 +35,7 @@ hidden = [
     "pymorphy3.units.unkn",
     "telegram.ext",
     "httpx",
+    "proxy_detect",   # авто-детект прокси при первом запуске .exe
 ] + pymorphy_hidden + socks_hidden
 
 

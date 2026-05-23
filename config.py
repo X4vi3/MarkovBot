@@ -65,7 +65,13 @@ OWNER_ID = int(_get("OWNER_ID", "0") or "0")
 # Пустая строка — без прокси (прямое подключение).
 # Пример SOCKS5: "socks5://127.0.0.1:10808" (v2rayN, Nekoray и т.п.)
 # Пример HTTP:   "http://127.0.0.1:10809"
+# Sentinel "direct" в config.ini пишет лаунчер, когда авто-детект
+# подтвердил прямое подключение. Для bot.py его надо превратить
+# в пустую строку — иначе python-telegram-bot попробует использовать
+# "direct" как реальный URL и упадёт.
 PROXY_URL = _get("PROXY_URL", "")
+if PROXY_URL.strip().lower() == "direct":
+    PROXY_URL = ""
 
 # --- Параметры модели Маркова ---
 MIN_MESSAGES = 20      # минимум сообщений в корпусе для генерации
