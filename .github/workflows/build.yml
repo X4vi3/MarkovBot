@@ -11,6 +11,13 @@ on:
 permissions:
   contents: write  # нужно для прикрепления assets к релизу
 
+# Форсим Node 24 для всех JavaScript-actions (checkout, setup-python,
+# upload-artifact и т.п.) независимо от их собственной декларации.
+# Убирает предупреждения «Node.js 20 actions are deprecated» до тех пор,
+# пока GitHub не выпустит обновлённые версии этих экшнов.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
